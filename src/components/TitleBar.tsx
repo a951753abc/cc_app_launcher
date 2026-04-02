@@ -30,9 +30,12 @@ export function TitleBar({
         App Launcher
       </span>
 
-      {/* Center: search + actions */}
-      <div className="flex flex-1 items-center gap-2 min-w-0">
-        <div className="relative flex-1 max-w-xs">
+      {/* Draggable spacer */}
+      <div data-tauri-drag-region className="flex-1 min-w-4 h-full" />
+
+      {/* Search + actions */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="relative w-48">
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary pointer-events-none"
             viewBox="0 0 24 24"
