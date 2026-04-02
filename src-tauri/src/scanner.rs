@@ -20,28 +20,72 @@ pub struct ScanCandidate {
 /// - Drive letter + `--` marks the drive boundary: `L--` → `L:\`
 /// - Single `-` is a path separator: `Users-JP6` → `Users\JP6`
 ///
-/// Examples:
-///   `L--mylisbeth`                        → `L:\mylisbeth`
-///   `C--Users-JP6-Documents-ai-trpg`      → `C:\Users\JP6\Documents\ai-trpg`
+/// Problem: folder names containing `-` (e.g. `doujin-tagger`) become ambiguous.
+/// Solution: greedy filesystem-based resolution — try joining segments with `\`,
+/// and when a path doesn't exist, try keeping the `-` literal instead.
 pub fn decode_project_dir_name(name: &str) -> Option<String> {
-    // Must start with a drive letter followed by `--`
     let (drive_part, rest) = name.split_once("--")?;
 
-    // drive_part should be a single ASCII alphabetic letter
     if drive_part.len() != 1 || !drive_part.chars().next()?.is_ascii_alphabetic() {
         return None;
     }
 
     let drive = drive_part.to_uppercase();
 
-    // Replace `-` with the OS path separator in the remainder
-    let path_part = rest.replace('-', std::path::MAIN_SEPARATOR_STR);
-
-    if path_part.is_empty() {
-        Some(format!("{drive}:\\"))
-    } else {
-        Some(format!("{drive}:\\{path_part}"))
+    if rest.is_empty() {
+        return Some(format!("{drive}:\\"));
     }
+
+    let segments: Vec<&str> = rest.split('-').collect();
+
+    // Greedy filesystem resolution: try to match real directories
+    let base = format!("{drive}:\\");
+    let resolved = resolve_segments(&base, &segments);
+    Some(resolved)
+}
+
+/// Greedily resolve path segments against the filesystem.
+/// For each position, try joining the next N segments with various separators
+/// (`-`, `_`, or as a single path component) and check if that directory exists.
+/// Longest filesystem match wins.
+fn resolve_segments(base: &str, segments: &[&str]) -> String {
+    let mut current = PathBuf::from(base);
+    let mut i = 0;
+
+    while i < segments.len() {
+        let mut best_len = 0;
+        let mut best_component = String::new();
+
+        // Try longest possible combination first (greedy)
+        for end in (i + 1..=segments.len()).rev() {
+            let slice = &segments[i..end];
+
+            // Try different join separators: `-` (original), `_` (common in paths)
+            for sep in &["-", "_"] {
+                let candidate: String = slice.join(*sep);
+                let test_path = current.join(&candidate);
+                if test_path.exists() {
+                    best_len = end - i;
+                    best_component = candidate;
+                    break;
+                }
+            }
+            if best_len > 0 {
+                break;
+            }
+        }
+
+        // Fallback: single segment as-is
+        if best_len == 0 {
+            best_len = 1;
+            best_component = segments[i].to_string();
+        }
+
+        current = current.join(&best_component);
+        i += best_len;
+    }
+
+    current.to_string_lossy().to_string()
 }
 
 /// Parse a port number from an npm script string.
@@ -131,21 +175,34 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
             name,
             path: path.to_string_lossy().to_string(),
             command: "npm run dev".to_string(),
-            app_type: "node".to_string(),
+            app_type: if port.is_some() { "web" } else { "script" }.to_string(),
             port,
         });
     }
 
-    // Python
+    // Python — explicit markers
     if path.join("requirements.txt").exists()
         || path.join("pyproject.toml").exists()
         || path.join("setup.py").exists()
     {
+        let entry = find_python_entry(path);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
-            command: "python main.py".to_string(),
-            app_type: "python".to_string(),
+            command: format!("python {entry}"),
+            app_type: "script".to_string(),
+            port: None,
+        });
+    }
+
+    // Python — fallback: directory contains .py files but no manifest
+    if has_python_files(path) {
+        let entry = find_python_entry(path);
+        return Some(ScanCandidate {
+            name,
+            path: path.to_string_lossy().to_string(),
+            command: format!("python {entry}"),
+            app_type: "script".to_string(),
             port: None,
         });
     }
@@ -156,7 +213,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
             name,
             path: path.to_string_lossy().to_string(),
             command: "cargo run".to_string(),
-            app_type: "rust".to_string(),
+            app_type: "cli".to_string(),
             port: None,
         });
     }
@@ -167,7 +224,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
             name,
             path: path.to_string_lossy().to_string(),
             command: "go run .".to_string(),
-            app_type: "go".to_string(),
+            app_type: "cli".to_string(),
             port: None,
         });
     }
@@ -192,12 +249,44 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
             name,
             path: path.to_string_lossy().to_string(),
             command: "dotnet run".to_string(),
-            app_type: "dotnet".to_string(),
+            app_type: "cli".to_string(),
             port: None,
         });
     }
 
     None
+}
+
+/// Find the best Python entry point in a directory.
+fn find_python_entry(path: &Path) -> String {
+    for candidate in &["app.py", "main.py", "run.py", "server.py"] {
+        if path.join(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    // Fallback: first .py file found
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".py") && !name.starts_with('_') {
+                return name;
+            }
+        }
+    }
+    "main.py".to_string()
+}
+
+/// Check if a directory contains any .py files (top-level only).
+fn has_python_files(path: &Path) -> bool {
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".py") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Whether a directory looks like a git worktree (not the main worktree).
@@ -299,24 +388,10 @@ mod tests {
 
     #[test]
     fn test_decode_project_dir_name() {
-        // Basic drive letter
+        // Basic — no ambiguity
         assert_eq!(
-            decode_project_dir_name("L--mylisbeth"),
-            Some("L:\\mylisbeth".to_string())
-        );
-
-        // Multi-segment path: each `-` is a path separator
-        // "C--Users-JP6-Documents-ai-trpg" → C:\Users\JP6\Documents\ai\trpg
-        // (if a folder name itself contains `-`, Claude can't round-trip it losslessly)
-        assert_eq!(
-            decode_project_dir_name("C--Users-JP6-Documents-ai-trpg"),
-            Some("C:\\Users\\JP6\\Documents\\ai\\trpg".to_string())
-        );
-
-        // Single path component after drive
-        assert_eq!(
-            decode_project_dir_name("D--projects"),
-            Some("D:\\projects".to_string())
+            decode_project_dir_name("L--temp"),
+            Some("L:\\temp".to_string())
         );
 
         // Invalid: no double-dash
@@ -324,6 +399,9 @@ mod tests {
 
         // Invalid: drive letter part too long
         assert_eq!(decode_project_dir_name("AB--path"), None);
+
+        // Drive only
+        assert_eq!(decode_project_dir_name("L--"), Some("L:\\".to_string()));
     }
 
     #[test]

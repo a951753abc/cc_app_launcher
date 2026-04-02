@@ -90,8 +90,20 @@ fn start_app(
 }
 
 #[tauri::command]
-fn stop_app(proc_mgr: State<Arc<ProcessManager>>, id: String) -> Result<(), String> {
-    proc_mgr.stop(&id)
+fn stop_app(
+    app_handle: AppHandle,
+    proc_mgr: State<Arc<ProcessManager>>,
+    id: String,
+) -> Result<(), String> {
+    proc_mgr.stop(&id)?;
+    let _ = app_handle.emit(
+        "process-status",
+        process::ProcessState {
+            app_id: id,
+            status: process::ProcessStatus::Stopped,
+        },
+    );
+    Ok(())
 }
 
 #[tauri::command]

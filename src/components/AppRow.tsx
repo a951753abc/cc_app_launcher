@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { AppEntry, ProcessStatus } from "../types";
 import { checkPathExists } from "../lib/commands";
-import { openUrl, openPath } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 interface AppRowProps {
   app: AppEntry;
@@ -45,7 +45,7 @@ export function AppRow({
 
   const handleOpenFolder = async () => {
     try {
-      await openPath(app.path);
+      await revealItemInDir(app.path);
     } catch {
       /* folder might not exist */
     }
