@@ -23,3 +23,18 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+@layer utilities {
+  .animate-slide-in-right {
+    animation: slide-in-right 200ms ease-out;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
