@@ -3,12 +3,17 @@ mod process;
 mod scanner;
 
 use config::{AppConfig, AppEntry, ConfigManager, Settings};
+use process::ProcessManager;
 use scanner::{candidate_to_app, scan_projects as do_scan_projects, ScanCandidate};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager, State,
+};
 
 // ---------------------------------------------------------------------------
-// Tauri commands
+// Config commands
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -59,12 +64,46 @@ fn check_path_exists(path: String) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// ScanCandidate needs Serialize/Deserialize for Tauri commands
+// Process commands
 // ---------------------------------------------------------------------------
 
-// We keep ScanCandidate defined in scanner.rs but add derives via a wrapper
-// here — actually, we need to add serde derives on the struct itself.
-// See scanner.rs for the derive attributes.
+#[tauri::command]
+fn start_app(
+    app_handle: AppHandle,
+    config_state: State<Arc<ConfigManager>>,
+    proc_mgr: State<Arc<ProcessManager>>,
+    id: String,
+) -> Result<(), String> {
+    let config = config_state.get_config()?;
+    let entry = config
+        .apps
+        .iter()
+        .find(|a| a.id == id)
+        .ok_or_else(|| format!("App '{id}' not found in config"))?
+        .clone();
+
+    if !std::path::Path::new(&entry.path).exists() {
+        return Err(format!("Working directory does not exist: {}", entry.path));
+    }
+
+    proc_mgr.start(entry.id, entry.command, entry.path, app_handle)
+}
+
+#[tauri::command]
+fn stop_app(proc_mgr: State<Arc<ProcessManager>>, id: String) -> Result<(), String> {
+    proc_mgr.stop(&id)
+}
+
+#[tauri::command]
+fn get_running_apps(proc_mgr: State<Arc<ProcessManager>>) -> Vec<String> {
+    proc_mgr.get_running_ids()
+}
+
+#[tauri::command]
+fn stop_all_apps(proc_mgr: State<Arc<ProcessManager>>) -> Result<(), String> {
+    proc_mgr.stop_all();
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -75,25 +114,94 @@ pub fn run() {
     let config_manager = Arc::new(
         ConfigManager::new().expect("Failed to initialize ConfigManager"),
     );
+    let process_manager = Arc::new(ProcessManager::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(config_manager.clone())
+        .manage(process_manager.clone())
         .setup(move |app| {
             let app_handle: AppHandle = app.handle().clone();
-            let manager = config_manager.clone();
 
-            // Watch for external config file changes and emit event to frontend
-            let watcher = manager
+            // --- Config file watcher ---
+            let watcher_handle = app_handle.clone();
+            let watcher = config_manager
                 .watch_config(move |_event| {
-                    let _ = app_handle.emit("config-changed", ());
+                    let _ = watcher_handle.emit("config-changed", ());
                 })
                 .expect("Failed to start config watcher");
-
-            // Leak the watcher so it stays alive for the lifetime of the app
             Box::leak(Box::new(watcher));
 
+            // --- System Tray ---
+            let show_item = MenuItem::with_id(app, "show", "顯示主視窗", true, None::<&str>)?;
+            let start_all_item =
+                MenuItem::with_id(app, "start-all", "啟動全部", true, None::<&str>)?;
+            let stop_all_item =
+                MenuItem::with_id(app, "stop-all", "停止全部", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+
+            let menu = Menu::with_items(
+                app,
+                &[&show_item, &start_all_item, &stop_all_item, &quit_item],
+            )?;
+
+            let tray_handle = app_handle.clone();
+            let _tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |_tray, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = tray_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "start-all" => {
+                        let _ = tray_handle.emit("tray-start-all", ());
+                    }
+                    "stop-all" => {
+                        if let Some(state) = tray_handle.try_state::<Arc<ProcessManager>>() {
+                            state.stop_all();
+                        }
+                    }
+                    "quit" => {
+                        tray_handle.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(move |tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
             Ok(())
+        })
+        .on_window_event(move |window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Read close_to_tray from config
+                let close_to_tray = window
+                    .app_handle()
+                    .try_state::<Arc<ConfigManager>>()
+                    .and_then(|mgr| mgr.get_config().ok())
+                    .map(|cfg| cfg.settings.close_to_tray)
+                    .unwrap_or(true);
+
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
@@ -104,6 +212,10 @@ pub fn run() {
             scan_projects,
             add_scanned_apps,
             check_path_exists,
+            start_app,
+            stop_app,
+            get_running_apps,
+            stop_all_apps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
