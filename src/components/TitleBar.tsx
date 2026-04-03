@@ -18,23 +18,21 @@ export function TitleBar({
   const appWindow = getCurrentWindow();
 
   return (
-    <div
-      data-tauri-drag-region
-      className="flex h-10 shrink-0 items-center justify-between bg-surface-1 px-3 select-none"
-    >
-      {/* Left: title */}
-      <span
-        data-tauri-drag-region
-        className="text-sm font-medium text-text-primary mr-3 shrink-0"
-      >
-        App Launcher
-      </span>
+    <div className="grid h-10 shrink-0 select-none bg-surface-1 px-3"
+         style={{ gridTemplateColumns: "auto 1fr max-content max-content" }}>
 
-      {/* Draggable spacer */}
-      <div data-tauri-drag-region className="flex-1 min-w-4 h-full" />
+      {/* Title — not draggable (too small) */}
+      <div className="flex items-center shrink-0 mr-2">
+        <span className="text-sm font-medium text-text-primary">
+          App Launcher
+        </span>
+      </div>
 
-      {/* Search + actions */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Drag region — empty div, fills remaining space */}
+      <div data-tauri-drag-region className="h-full" />
+
+      {/* Search + action buttons */}
+      <div className="flex items-center gap-2 mr-2">
         <div className="relative w-48">
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary pointer-events-none"
@@ -62,15 +60,7 @@ export function TitleBar({
           className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
           title="新增應用程式"
         >
-          <svg
-            className="w-4 h-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
@@ -81,15 +71,7 @@ export function TitleBar({
           className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
           title="掃描專案"
         >
-          <svg
-            className="w-4 h-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21.5 2v6h-6" />
             <path d="M2.5 12a10 10 0 0 1 16.6-6.2L21.5 8" />
             <path d="M2.5 22v-6h6" />
@@ -102,26 +84,18 @@ export function TitleBar({
           className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
           title="設定"
         >
-          <svg
-            className="w-4 h-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
       </div>
 
-      {/* Right: window controls */}
-      <div className="flex items-center gap-1 ml-3 shrink-0">
+      {/* Window controls */}
+      <div className="flex items-center">
         <button
           onClick={() => appWindow.minimize()}
-          className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150"
+          className="inline-flex items-center justify-center w-8 h-10 text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150"
           title="最小化"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -130,7 +104,7 @@ export function TitleBar({
         </button>
         <button
           onClick={() => appWindow.toggleMaximize()}
-          className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150"
+          className="inline-flex items-center justify-center w-8 h-10 text-text-secondary hover:text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150"
           title="最大化"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,7 +113,7 @@ export function TitleBar({
         </button>
         <button
           onClick={() => appWindow.close()}
-          className="flex items-center justify-center w-6 h-6 rounded text-text-secondary hover:text-text-primary hover:bg-red-500/20 cursor-pointer transition-colors duration-150"
+          className="inline-flex items-center justify-center w-8 h-10 text-text-secondary hover:text-text-primary hover:bg-red-500/20 cursor-pointer transition-colors duration-150"
           title="關閉"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
