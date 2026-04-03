@@ -1,5 +1,7 @@
 # App Launcher
 
+[English](README.md)
+
 輕量級桌面應用程式，用來統一管理與啟動散落各處的本機專案。以 Tauri v2（Rust）+ React + TypeScript 打造。
 
 ## 為什麼需要

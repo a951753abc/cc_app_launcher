@@ -1,5 +1,7 @@
 # App Launcher
 
+[正體中文](README.zh-TW.md)
+
 A lightweight desktop application for managing and launching multiple local projects from a single interface. Built with Tauri v2 (Rust) + React + TypeScript.
 
 ## Why
