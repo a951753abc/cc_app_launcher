@@ -16,15 +16,20 @@ export function useProcesses() {
     const states = await detectRunning();
     setStatusMap((prev) => {
       const next = { ...prev };
-      // Clear previous "external" entries (they may no longer be running)
+      let changed = false;
+      // Clear previous "external" entries that are no longer detected
       for (const [id, st] of Object.entries(next)) {
-        if (st === "external") delete next[id];
+        if (st === "external") {
+          delete next[id];
+          changed = true;
+        }
       }
       // Merge freshly detected externals
       for (const s of states) {
+        if (next[s.appId] !== s.status) changed = true;
         next[s.appId] = s.status;
       }
-      return next;
+      return changed ? next : prev;
     });
   }, []);
 

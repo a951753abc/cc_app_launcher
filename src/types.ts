@@ -1,4 +1,5 @@
 export type AppType = "web" | "cli" | "gui" | "script";
+export type FilterType = "all" | AppType;
 
 export interface AppEntry {
   id: string;

@@ -113,8 +113,10 @@ fn get_running_apps(proc_mgr: State<Arc<ProcessManager>>) -> Vec<String> {
 
 /// Detect externally-running apps.
 /// - Apps with a port: TCP connect check
-/// - Apps without a port: process cwd / command-line path match via sysinfo
+/// - Apps with a processName: match by process name via sysinfo
+/// - Others: match by cwd / command-line path via sysinfo
 /// Only checks apps NOT already managed by ProcessManager.
+/// A single sysinfo snapshot is taken for all non-port checks.
 #[tauri::command]
 fn detect_running(
     config_state: State<Arc<ConfigManager>>,
@@ -125,17 +127,30 @@ fn detect_running(
         Err(_) => return Vec::new(),
     };
     let managed_ids = proc_mgr.get_running_ids();
+
+    // Collect apps that need process-level detection
+    let unmanaged: Vec<_> = config
+        .apps
+        .iter()
+        .filter(|a| !managed_ids.contains(&a.id))
+        .collect();
+
+    // Build sysinfo snapshot only once, and only if needed
+    let needs_sysinfo = unmanaged.iter().any(|a| a.port.is_none());
+    let snapshot = if needs_sysinfo {
+        Some(process::ProcessSnapshot::new())
+    } else {
+        None
+    };
+
     let mut results = Vec::new();
-    for app in &config.apps {
-        if managed_ids.contains(&app.id) {
-            continue;
-        }
+    for app in &unmanaged {
         let detected = if let Some(port) = app.port {
             process::is_port_in_use(port)
         } else if let Some(ref pname) = app.process_name {
-            process::is_process_name_running(pname)
+            snapshot.as_ref().unwrap().has_process_named(pname)
         } else {
-            process::is_process_running_at_path(&app.path)
+            snapshot.as_ref().unwrap().has_process_at_path(&app.path)
         };
         if detected {
             results.push(process::ProcessState {

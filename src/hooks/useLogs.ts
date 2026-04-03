@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { LogLine } from "../types";
 
@@ -7,8 +7,6 @@ const MAX_LINES = 500;
 export function useLogs() {
   const [logs, setLogs] = useState<Record<string, LogLine[]>>({});
   const [activeAppId, setActiveAppId] = useState<string | null>(null);
-  const logsRef = useRef(logs);
-  logsRef.current = logs;
 
   useEffect(() => {
     const unlisten = listen<LogLine>("process-log", (event) => {

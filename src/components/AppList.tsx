@@ -1,7 +1,5 @@
-import type { AppEntry, AppType, ProcessStatus } from "../types";
+import type { AppEntry, FilterType, ProcessStatus } from "../types";
 import { AppRow } from "./AppRow";
-
-type FilterType = "all" | AppType;
 
 interface AppListProps {
   apps: AppEntry[];

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { AppEntry, AppType } from "./types";
+import type { AppEntry, FilterType } from "./types";
 import { useApps } from "./hooks/useApps";
 import { useProcesses } from "./hooks/useProcesses";
 import { useLogs } from "./hooks/useLogs";
@@ -10,8 +10,6 @@ import { LogPanel } from "./components/LogPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AppForm } from "./components/AppForm";
 import { ScanResults } from "./components/ScanResults";
-
-type FilterType = "all" | AppType;
 
 function App() {
   const { apps, settings, loading, addApp, updateApp, removeApp, updateSettings, reload } =

@@ -52,11 +52,35 @@ pub struct ProcessManager {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn spawn_log_reader(
+    stream: impl std::io::Read + Send + 'static,
+    app_id: String,
+    app_handle: AppHandle,
+    is_stderr: bool,
+) {
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stream);
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = app_handle.emit(
+                "process-log",
+                LogLine {
+                    app_id: app_id.clone(),
+                    line,
+                    is_stderr,
+                    timestamp: now_millis(),
+                },
+            );
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -89,8 +113,6 @@ impl ProcessManager {
                 return Err(format!("App '{app_id}' is already running"));
             }
         }
-
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         let mut child = Command::new("cmd")
             .args(["/C", &command])
@@ -131,45 +153,8 @@ impl ProcessManager {
             },
         );
 
-        // --- stdout thread ---
-        {
-            let app_handle = app_handle.clone();
-            let app_id = app_id.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines().map_while(Result::ok) {
-                    let _ = app_handle.emit(
-                        "process-log",
-                        LogLine {
-                            app_id: app_id.clone(),
-                            line,
-                            is_stderr: false,
-                            timestamp: now_millis(),
-                        },
-                    );
-                }
-            });
-        }
-
-        // --- stderr thread ---
-        {
-            let app_handle = app_handle.clone();
-            let app_id = app_id.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().map_while(Result::ok) {
-                    let _ = app_handle.emit(
-                        "process-log",
-                        LogLine {
-                            app_id: app_id.clone(),
-                            line,
-                            is_stderr: true,
-                            timestamp: now_millis(),
-                        },
-                    );
-                }
-            });
-        }
+        spawn_log_reader(stdout, app_id.clone(), app_handle.clone(), false);
+        spawn_log_reader(stderr, app_id.clone(), app_handle.clone(), true);
 
         // --- monitor thread: polls try_wait() every second ---
         {
@@ -233,7 +218,7 @@ impl ProcessManager {
         // taskkill /PID {pid} /T /F — terminates the whole process tree
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(0x08000000)
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         // Belt-and-suspenders: also call child.kill()
@@ -271,53 +256,47 @@ pub fn is_port_in_use(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
 }
 
-/// Check whether a process with the given name is currently running (e.g. "pythonw.exe").
-pub fn is_process_name_running(target: &str) -> bool {
-    use sysinfo::System;
-
-    let target_lower = target.to_lowercase();
-    let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-
-    for (_pid, process) in sys.processes() {
-        if process.name().to_string_lossy().to_lowercase() == target_lower {
-            return true;
-        }
-    }
-    false
+/// Snapshot of all running processes. Build once, query many times.
+pub struct ProcessSnapshot {
+    sys: sysinfo::System,
 }
 
-/// Check whether a process whose working directory or command line matches
-/// `app_path` is currently running.  Uses the `sysinfo` crate.
-pub fn is_process_running_at_path(app_path: &str) -> bool {
-    use sysinfo::System;
-    use std::path::Path;
-
-    let normalized = Path::new(app_path)
-        .canonicalize()
-        .unwrap_or_else(|_| Path::new(app_path).to_path_buf());
-    let normalized_lower = normalized.to_string_lossy().to_lowercase();
-
-    let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-
-    for (_pid, process) in sys.processes() {
-        // 1. Match by cwd
-        if let Some(cwd) = process.cwd() {
-            let cwd_canon = cwd
-                .canonicalize()
-                .unwrap_or_else(|_| cwd.to_path_buf());
-            if cwd_canon.to_string_lossy().to_lowercase() == normalized_lower {
-                return true;
-            }
-        }
-        // 2. Match by command-line args containing the path
-        for arg in process.cmd() {
-            let arg_lower = arg.to_string_lossy().to_lowercase().replace('/', "\\");
-            if arg_lower.contains(&normalized_lower) {
-                return true;
-            }
-        }
+impl ProcessSnapshot {
+    pub fn new() -> Self {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        Self { sys }
     }
-    false
+
+    /// Check whether a process with the given name is currently running.
+    pub fn has_process_named(&self, target: &str) -> bool {
+        let target_lower = target.to_lowercase();
+        self.sys.processes().values().any(|p| {
+            p.name().to_string_lossy().to_lowercase() == target_lower
+        })
+    }
+
+    /// Check whether a process whose cwd or command line matches `app_path` exists.
+    pub fn has_process_at_path(&self, app_path: &str) -> bool {
+        let normalized = std::path::Path::new(app_path)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(app_path));
+        let normalized_lower = normalized.to_string_lossy().to_lowercase();
+
+        for process in self.sys.processes().values() {
+            if let Some(cwd) = process.cwd() {
+                let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+                if cwd_canon.to_string_lossy().to_lowercase() == normalized_lower {
+                    return true;
+                }
+            }
+            for arg in process.cmd() {
+                let arg_lower = arg.to_string_lossy().to_lowercase().replace('/', "\\");
+                if arg_lower.contains(&normalized_lower) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }

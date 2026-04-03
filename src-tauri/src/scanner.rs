@@ -2,7 +2,6 @@ use crate::config::{AppEntry, ConfigManager};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -370,17 +369,9 @@ pub fn scan_projects(config: &ConfigManager) -> Vec<ScanCandidate> {
 
 /// Convert a `ScanCandidate` into a full `AppEntry` with a new UUID.
 pub fn candidate_to_app(candidate: ScanCandidate) -> AppEntry {
-    AppEntry {
-        id: Uuid::new_v4().to_string(),
-        name: candidate.name,
-        path: candidate.path,
-        command: candidate.command,
-        app_type: candidate.app_type,
-        port: candidate.port,
-        process_name: None,
-        auto_start: false,
-        tags: Vec::new(),
-    }
+    let mut app = AppEntry::new(candidate.name, candidate.path, candidate.command, candidate.app_type);
+    app.port = candidate.port;
+    app
 }
 
 #[cfg(test)]
