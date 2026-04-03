@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   AppEntry,
+  ProcessState,
   ScanCandidate,
   Settings,
 } from "../types";
@@ -48,6 +49,10 @@ export function stopApp(id: string): Promise<void> {
 
 export function getRunningApps(): Promise<string[]> {
   return invoke<string[]>("get_running_apps");
+}
+
+export function detectRunning(): Promise<ProcessState[]> {
+  return invoke<ProcessState[]>("detect_running");
 }
 
 export function stopAllApps(): Promise<void> {

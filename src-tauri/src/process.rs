@@ -26,6 +26,7 @@ pub enum ProcessStatus {
     Stopped,
     Running,
     Error,
+    External,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,4 +262,62 @@ impl Drop for ProcessManager {
     fn drop(&mut self) {
         self.stop_all();
     }
+}
+
+/// Check whether a TCP port is currently in use on localhost.
+pub fn is_port_in_use(port: u16) -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    let addr: SocketAddr = ([127, 0, 0, 1], port).into();
+    TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
+}
+
+/// Check whether a process with the given name is currently running (e.g. "pythonw.exe").
+pub fn is_process_name_running(target: &str) -> bool {
+    use sysinfo::System;
+
+    let target_lower = target.to_lowercase();
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+    for (_pid, process) in sys.processes() {
+        if process.name().to_string_lossy().to_lowercase() == target_lower {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check whether a process whose working directory or command line matches
+/// `app_path` is currently running.  Uses the `sysinfo` crate.
+pub fn is_process_running_at_path(app_path: &str) -> bool {
+    use sysinfo::System;
+    use std::path::Path;
+
+    let normalized = Path::new(app_path)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(app_path).to_path_buf());
+    let normalized_lower = normalized.to_string_lossy().to_lowercase();
+
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+    for (_pid, process) in sys.processes() {
+        // 1. Match by cwd
+        if let Some(cwd) = process.cwd() {
+            let cwd_canon = cwd
+                .canonicalize()
+                .unwrap_or_else(|_| cwd.to_path_buf());
+            if cwd_canon.to_string_lossy().to_lowercase() == normalized_lower {
+                return true;
+            }
+        }
+        // 2. Match by command-line args containing the path
+        for arg in process.cmd() {
+            let arg_lower = arg.to_string_lossy().to_lowercase().replace('/', "\\");
+            if arg_lower.contains(&normalized_lower) {
+                return true;
+            }
+        }
+    }
+    false
 }

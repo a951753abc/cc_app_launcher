@@ -377,6 +377,7 @@ pub fn candidate_to_app(candidate: ScanCandidate) -> AppEntry {
         command: candidate.command,
         app_type: candidate.app_type,
         port: candidate.port,
+        process_name: None,
         auto_start: false,
         tags: Vec::new(),
     }

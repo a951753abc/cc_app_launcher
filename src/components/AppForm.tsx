@@ -29,6 +29,7 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
   const [port, setPort] = useState<string>(
     app?.port != null ? String(app.port) : "",
   );
+  const [processName, setProcessName] = useState(app?.processName ?? "");
   const [autoStart, setAutoStart] = useState(app?.autoStart ?? false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -40,6 +41,7 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
       command: command.trim(),
       type,
       port: type === "web" && port ? Number(port) : undefined,
+      processName: processName.trim() || undefined,
       autoStart,
       tags: app?.tags ?? [],
     };
@@ -159,6 +161,22 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
               />
             </div>
           )}
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-text-secondary">
+              Process Name（偵測用，選填）
+            </label>
+            <input
+              type="text"
+              value={processName}
+              onChange={(e) => setProcessName(e.target.value)}
+              placeholder="pythonw.exe"
+              className="h-8 rounded bg-surface-0 px-2 text-sm font-mono text-text-primary placeholder:text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 transition-colors duration-150"
+            />
+            <span className="text-[10px] text-text-secondary">
+              用於偵測外部已啟動的服務（如 Windows 排程工作）
+            </span>
+          </div>
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input

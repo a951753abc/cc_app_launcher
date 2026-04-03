@@ -7,6 +7,7 @@ export interface AppEntry {
   command: string;
   type: AppType;
   port?: number;
+  processName?: string;
   autoStart: boolean;
   tags: string[];
 }
@@ -33,7 +34,7 @@ export interface ScanCandidate {
   port?: number;
 }
 
-export type ProcessStatus = "stopped" | "running" | "error";
+export type ProcessStatus = "stopped" | "running" | "error" | "external";
 
 export interface ProcessState {
   appId: string;

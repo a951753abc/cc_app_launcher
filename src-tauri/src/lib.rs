@@ -111,6 +111,42 @@ fn get_running_apps(proc_mgr: State<Arc<ProcessManager>>) -> Vec<String> {
     proc_mgr.get_running_ids()
 }
 
+/// Detect externally-running apps.
+/// - Apps with a port: TCP connect check
+/// - Apps without a port: process cwd / command-line path match via sysinfo
+/// Only checks apps NOT already managed by ProcessManager.
+#[tauri::command]
+fn detect_running(
+    config_state: State<Arc<ConfigManager>>,
+    proc_mgr: State<Arc<ProcessManager>>,
+) -> Vec<process::ProcessState> {
+    let config = match config_state.get_config() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let managed_ids = proc_mgr.get_running_ids();
+    let mut results = Vec::new();
+    for app in &config.apps {
+        if managed_ids.contains(&app.id) {
+            continue;
+        }
+        let detected = if let Some(port) = app.port {
+            process::is_port_in_use(port)
+        } else if let Some(ref pname) = app.process_name {
+            process::is_process_name_running(pname)
+        } else {
+            process::is_process_running_at_path(&app.path)
+        };
+        if detected {
+            results.push(process::ProcessState {
+                app_id: app.id.clone(),
+                status: process::ProcessStatus::External,
+            });
+        }
+    }
+    results
+}
+
 #[tauri::command]
 fn stop_all_apps(proc_mgr: State<Arc<ProcessManager>>) -> Result<(), String> {
     proc_mgr.stop_all();
@@ -227,6 +263,7 @@ pub fn run() {
             start_app,
             stop_app,
             get_running_apps,
+            detect_running,
             stop_all_apps,
         ])
         .run(tauri::generate_context!())

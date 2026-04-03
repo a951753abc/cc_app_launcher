@@ -34,7 +34,8 @@ export function AppRow({
     checkPathExists(app.path).then(setPathExists);
   }, [app.path]);
 
-  const isRunning = status === "running";
+  const isRunning = status === "running" || status === "external";
+  const isExternal = status === "external";
   const isError = status === "error";
 
   const borderColor = isRunning
@@ -67,7 +68,9 @@ export function AppRow({
     >
       {/* Status dot */}
       <div className="shrink-0">
-        {isRunning ? (
+        {isExternal ? (
+          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-running opacity-60" title="外部啟動" />
+        ) : isRunning ? (
           <span className="relative flex h-2.5 w-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-running opacity-75" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-running" />
@@ -187,16 +190,24 @@ export function AppRow({
 
       {/* Start/Stop button - always visible */}
       <button
-        onClick={() => (isRunning ? onStop(app.id) : onStart(app.id))}
-        disabled={!pathExists && !isRunning}
-        className={`flex items-center justify-center w-7 h-7 rounded shrink-0 cursor-pointer transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 disabled:opacity-40 disabled:cursor-not-allowed ${
-          isRunning
-            ? "text-error hover:bg-error/10"
-            : "text-running hover:bg-running/10"
+        onClick={() => (isRunning && !isExternal ? onStop(app.id) : !isExternal ? onStart(app.id) : undefined)}
+        disabled={isExternal || (!pathExists && !isRunning)}
+        className={`flex items-center justify-center w-7 h-7 rounded shrink-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+          isExternal
+            ? "text-running"
+            : isRunning
+              ? "text-error hover:bg-error/10 cursor-pointer"
+              : "text-running hover:bg-running/10 cursor-pointer"
         }`}
-        title={isRunning ? "停止" : "啟動"}
+        title={isExternal ? "外部啟動（非由本程式管理）" : isRunning ? "停止" : "啟動"}
       >
-        {isRunning ? (
+        {isExternal ? (
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        ) : isRunning ? (
           <svg
             className="w-4 h-4"
             viewBox="0 0 24 24"

@@ -15,6 +15,9 @@ pub struct AppEntry {
     pub app_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// Process name to match for external-running detection (e.g. "pythonw.exe").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub auto_start: bool,
     pub tags: Vec<String>,
 }
@@ -28,6 +31,7 @@ impl AppEntry {
             command,
             app_type,
             port: None,
+            process_name: None,
             auto_start: false,
             tags: Vec::new(),
         }
