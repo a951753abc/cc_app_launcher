@@ -113,6 +113,7 @@ function App() {
         onStop={stopApp}
         onViewLog={openLog}
         onEdit={setEditingApp}
+        onDelete={handleDeleteApp}
       />
 
       {activeAppId !== null && (

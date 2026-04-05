@@ -46,8 +46,8 @@ export function useProcesses() {
     // 2. Detect externally-running processes (port check)
     refreshExternal();
 
-    // 3. Poll every 30s to catch external start/stop
-    const interval = setInterval(refreshExternal, 30_000);
+    // 3. Poll every 10s to catch external start/stop
+    const interval = setInterval(refreshExternal, 10_000);
 
     // 4. Listen for status events from managed processes
     const unlisten = listen<ProcessState>("process-status", (event) => {

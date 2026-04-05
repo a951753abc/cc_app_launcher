@@ -249,6 +249,12 @@ impl Drop for ProcessManager {
     }
 }
 
+/// Strip the Windows `\\?\` UNC prefix that `canonicalize()` adds.
+/// Without this, string comparisons against non-canonicalized paths fail.
+fn strip_unc_prefix(s: &str) -> String {
+    s.strip_prefix(r"\\?\").unwrap_or(s).to_string()
+}
+
 /// Check whether a TCP port is currently in use on localhost.
 pub fn is_port_in_use(port: u16) -> bool {
     use std::net::{SocketAddr, TcpStream};
@@ -276,23 +282,39 @@ impl ProcessSnapshot {
         })
     }
 
-    /// Check whether a process whose cwd or command line matches `app_path` exists.
+    /// Check whether a process whose cwd, command line, or executable path
+    /// matches `app_path` exists. Also detects venv-launched processes whose
+    /// executable lives inside the project's venv directory.
     pub fn has_process_at_path(&self, app_path: &str) -> bool {
-        let normalized = std::path::Path::new(app_path)
-            .canonicalize()
-            .unwrap_or_else(|_| std::path::PathBuf::from(app_path));
-        let normalized_lower = normalized.to_string_lossy().to_lowercase();
+        let normalized_lower = strip_unc_prefix(app_path)
+            .to_lowercase()
+            .replace('/', "\\");
 
         for process in self.sys.processes().values() {
+            // Check cwd
             if let Some(cwd) = process.cwd() {
-                let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
-                if cwd_canon.to_string_lossy().to_lowercase() == normalized_lower {
+                let cwd_str = strip_unc_prefix(&cwd.to_string_lossy())
+                    .to_lowercase()
+                    .replace('/', "\\");
+                if cwd_str == normalized_lower {
                     return true;
                 }
             }
+            // Check command-line arguments
             for arg in process.cmd() {
-                let arg_lower = arg.to_string_lossy().to_lowercase().replace('/', "\\");
+                let arg_lower = strip_unc_prefix(&arg.to_string_lossy())
+                    .to_lowercase()
+                    .replace('/', "\\");
                 if arg_lower.contains(&normalized_lower) {
+                    return true;
+                }
+            }
+            // Check executable path (catches venv python inside project dir)
+            if let Some(exe) = process.exe() {
+                let exe_lower = strip_unc_prefix(&exe.to_string_lossy())
+                    .to_lowercase()
+                    .replace('/', "\\");
+                if exe_lower.starts_with(&normalized_lower) {
                     return true;
                 }
             }

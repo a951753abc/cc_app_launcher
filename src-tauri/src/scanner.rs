@@ -185,10 +185,11 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
         || path.join("setup.py").exists()
     {
         let entry = find_python_entry(path);
+        let command = build_python_command(path, &entry);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
-            command: format!("python {entry}"),
+            command,
             app_type: "script".to_string(),
             port: None,
         });
@@ -197,10 +198,11 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     // Python — fallback: directory contains .py files but no manifest
     if has_python_files(path) {
         let entry = find_python_entry(path);
+        let command = build_python_command(path, &entry);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
-            command: format!("python {entry}"),
+            command,
             app_type: "script".to_string(),
             port: None,
         });
@@ -256,20 +258,60 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     None
 }
 
+/// Find the venv Python executable in a project directory (Windows).
+/// Checks `venv\Scripts\python.exe` and `.venv\Scripts\python.exe`.
+fn find_venv_python(path: &Path) -> Option<PathBuf> {
+    for dir_name in &["venv", ".venv"] {
+        let python = path.join(dir_name).join("Scripts").join("python.exe");
+        if python.exists() {
+            return Some(python);
+        }
+    }
+    None
+}
+
+/// Build the Python command for a project, using venv if available.
+fn build_python_command(path: &Path, entry: &str) -> String {
+    if let Some(venv_python) = find_venv_python(path) {
+        format!("\"{}\" {}", venv_python.to_string_lossy(), entry)
+    } else {
+        format!("python {}", entry)
+    }
+}
+
 /// Find the best Python entry point in a directory.
 fn find_python_entry(path: &Path) -> String {
+    // Exact-name priority list
     for candidate in &["app.py", "main.py", "run.py", "server.py"] {
         if path.join(candidate).exists() {
             return candidate.to_string();
         }
     }
-    // Fallback: first .py file found
+    // Pattern-based: files containing "server" or "api" in the name
     if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(".py") && !name.starts_with('_') {
-                return name;
+        let mut py_files: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".py") && !name.starts_with('_') && !name.starts_with("test") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        py_files.sort();
+
+        // Prefer files with "server" or "api" in the name
+        for f in &py_files {
+            let lower = f.to_lowercase();
+            if lower.contains("server") || lower.contains("api") {
+                return f.clone();
             }
+        }
+        // Fallback: first non-test .py file
+        if let Some(first) = py_files.first() {
+            return first.clone();
         }
     }
     "main.py".to_string()

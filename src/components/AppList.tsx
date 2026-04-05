@@ -11,6 +11,7 @@ interface AppListProps {
   onStop: (id: string) => void;
   onViewLog: (id: string) => void;
   onEdit: (app: AppEntry) => void;
+  onDelete: (id: string) => void;
 }
 
 const FILTERS: { value: FilterType; label: string }[] = [
@@ -31,6 +32,7 @@ export function AppList({
   onStop,
   onViewLog,
   onEdit,
+  onDelete,
 }: AppListProps) {
   const filtered = apps.filter((app) => {
     if (filterType !== "all" && app.type !== filterType) return false;
@@ -86,6 +88,7 @@ export function AppList({
                 onStop={onStop}
                 onViewLog={onViewLog}
                 onEdit={onEdit}
+                onDelete={onDelete}
               />
             ))}
           </div>

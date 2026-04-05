@@ -10,6 +10,7 @@ interface AppRowProps {
   onStop: (id: string) => void;
   onViewLog: (id: string) => void;
   onEdit: (app: AppEntry) => void;
+  onDelete: (id: string) => void;
 }
 
 const typeBadgeColors: Record<string, string> = {
@@ -26,6 +27,7 @@ export function AppRow({
   onStop,
   onViewLog,
   onEdit,
+  onDelete,
 }: AppRowProps) {
   const [pathExists, setPathExists] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
@@ -260,6 +262,15 @@ export function AppRow({
                 className="w-full text-left px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2 cursor-pointer transition-colors duration-150"
               >
                 編輯
+              </button>
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onDelete(app.id);
+                }}
+                className="w-full text-left px-3 py-1.5 text-xs text-error hover:bg-error/10 cursor-pointer transition-colors duration-150"
+              >
+                刪除
               </button>
             </div>
           </>
