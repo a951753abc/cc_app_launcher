@@ -282,6 +282,8 @@ fn pick_real_python(candidates: Vec<PathBuf>) -> Option<PathBuf> {
     pick_real_python_with(candidates, |p| p.exists())
 }
 
+/// Testable variant of [`pick_real_python`]; accepts an `exists` predicate
+/// instead of calling `Path::exists`, enabling pure unit tests without I/O.
 fn pick_real_python_with<F>(candidates: Vec<PathBuf>, exists: F) -> Option<PathBuf>
 where
     F: Fn(&Path) -> bool,
