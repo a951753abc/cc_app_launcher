@@ -258,6 +258,39 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     None
 }
 
+/// Parse the stdout of `where python` into a list of candidate paths.
+/// One path per non-blank line, trimmed.
+fn parse_where_output(s: &str) -> Vec<PathBuf> {
+    s.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Detect Microsoft Store's Python alias stub. The stub lives at
+/// `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` and only opens
+/// the Store install dialog — never use it as a real interpreter.
+fn is_windows_store_stub(p: &Path) -> bool {
+    let s = p.to_string_lossy().to_lowercase().replace('/', "\\");
+    s.contains("\\appdata\\local\\microsoft\\windowsapps\\")
+}
+
+/// Pick the first candidate that is not a Windows Store stub and exists
+/// on disk. Used by tests via the `_with` variant for predicate injection.
+fn pick_real_python(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    pick_real_python_with(candidates, |p| p.exists())
+}
+
+fn pick_real_python_with<F>(candidates: Vec<PathBuf>, exists: F) -> Option<PathBuf>
+where
+    F: Fn(&Path) -> bool,
+{
+    candidates
+        .into_iter()
+        .find(|p| !is_windows_store_stub(p) && exists(p))
+}
+
 /// Find the venv Python executable in a project directory (Windows).
 /// Checks `venv\Scripts\python.exe` and `.venv\Scripts\python.exe`.
 fn find_venv_python(path: &Path) -> Option<PathBuf> {
@@ -456,5 +489,82 @@ mod tests {
         // No port
         assert_eq!(extract_port("cargo run"), None);
         assert_eq!(extract_port("python app.py"), None);
+    }
+
+    #[test]
+    fn test_parse_where_output_basic() {
+        let raw = "C:\\Users\\JP6\\anaconda3\\python.exe\r\nC:\\Python314\\python.exe\r\n";
+        let parsed = parse_where_output(raw);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"));
+        assert_eq!(parsed[1], PathBuf::from("C:\\Python314\\python.exe"));
+    }
+
+    #[test]
+    fn test_parse_where_output_skips_blank_lines() {
+        let raw = "\nC:\\Python314\\python.exe\n\n  \n";
+        let parsed = parse_where_output(raw);
+        assert_eq!(parsed.len(), 1);
+    }
+
+    #[test]
+    fn test_is_windows_store_stub_detects_appdata_windowsapps() {
+        assert!(is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe"
+        )));
+        assert!(is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        )));
+    }
+
+    #[test]
+    fn test_is_windows_store_stub_real_python_is_not_stub() {
+        assert!(!is_windows_store_stub(&PathBuf::from(
+            "C:\\Python314\\python.exe"
+        )));
+        assert!(!is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\anaconda3\\python.exe"
+        )));
+    }
+
+    #[test]
+    fn test_pick_real_python_skips_stub_and_picks_first_real() {
+        let candidates = vec![
+            PathBuf::from("C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe"),
+            PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"),
+            PathBuf::from("C:\\Python314\\python.exe"),
+        ];
+        let picked = pick_real_python_with(candidates, |_| true);
+        assert_eq!(
+            picked,
+            Some(PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"))
+        );
+    }
+
+    #[test]
+    fn test_pick_real_python_returns_none_when_only_stub() {
+        let candidates = vec![PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",
+        )];
+        let picked = pick_real_python_with(candidates, |_| true);
+        assert_eq!(picked, None);
+    }
+
+    #[test]
+    fn test_pick_real_python_returns_none_when_none_exist() {
+        let candidates = vec![PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe")];
+        let picked = pick_real_python_with(candidates, |_| false);
+        assert_eq!(picked, None);
+    }
+
+    #[test]
+    fn test_pick_real_python_uses_real_existence_check() {
+        // Use current_exe() — guaranteed to exist on the test machine
+        let real_exe = std::env::current_exe().unwrap();
+        let candidates = vec![
+            PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe"),
+            real_exe.clone(),
+        ];
+        assert_eq!(pick_real_python(candidates), Some(real_exe));
     }
 }
