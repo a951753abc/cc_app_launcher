@@ -39,6 +39,10 @@ export function checkPathExists(path: string): Promise<boolean> {
   return invoke<boolean>("check_path_exists", { path });
 }
 
+export function detectProjectCommand(path: string): Promise<string> {
+  return invoke<string>("detect_project_command", { path });
+}
+
 export function startApp(id: string): Promise<void> {
   return invoke("start_app", { id });
 }

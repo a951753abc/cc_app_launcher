@@ -18,6 +18,7 @@ export interface Settings {
   closeToTray: boolean;
   autoStartWithWindows: boolean;
   excludeWorktrees: boolean;
+  pythonInterpreter?: string;
 }
 
 export interface AppConfig {
