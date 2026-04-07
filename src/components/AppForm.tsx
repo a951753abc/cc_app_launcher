@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AppEntry, AppType } from "../types";
+import { detectProjectCommand } from "../lib/commands";
 
 interface AppFormProps {
   app: AppEntry | null;
@@ -31,6 +32,26 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
   );
   const [processName, setProcessName] = useState(app?.processName ?? "");
   const [autoStart, setAutoStart] = useState(app?.autoStart ?? false);
+
+  const [redetectError, setRedetectError] = useState<string | null>(null);
+  const [redetecting, setRedetecting] = useState(false);
+
+  const handleRedetect = async () => {
+    if (!path.trim()) {
+      setRedetectError("請先填入路徑");
+      return;
+    }
+    setRedetecting(true);
+    setRedetectError(null);
+    try {
+      const detected = await detectProjectCommand(path.trim());
+      setCommand(detected);
+    } catch (err) {
+      setRedetectError(String(err));
+    } finally {
+      setRedetecting(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,14 +139,27 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
             <label className="text-xs font-medium text-text-secondary">
               指令
             </label>
-            <input
-              type="text"
-              required
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="npm run dev"
-              className="h-8 rounded bg-surface-0 px-2 text-sm font-mono text-text-primary placeholder:text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 transition-colors duration-150"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                required
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder="npm run dev"
+                className="flex-1 h-8 rounded bg-surface-0 px-2 text-sm font-mono text-text-primary placeholder:text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 transition-colors duration-150"
+              />
+              <button
+                type="button"
+                onClick={handleRedetect}
+                disabled={redetecting}
+                className="h-8 px-2 rounded bg-surface-2 text-xs text-text-primary cursor-pointer hover:bg-surface-0 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+              >
+                {redetecting ? "偵測中…" : "重新偵測"}
+              </button>
+            </div>
+            {redetectError && (
+              <span className="text-[10px] text-error">{redetectError}</span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">

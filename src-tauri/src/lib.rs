@@ -4,7 +4,7 @@ mod scanner;
 
 use config::{AppConfig, AppEntry, ConfigManager, Settings};
 use process::ProcessManager;
-use scanner::{candidate_to_app, scan_projects as do_scan_projects, ScanCandidate};
+use scanner::{candidate_to_app, detect_project, scan_projects as do_scan_projects, ScanCandidate};
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -61,6 +61,21 @@ fn add_scanned_apps(
 #[tauri::command]
 fn check_path_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
+}
+
+#[tauri::command]
+fn detect_project_command(
+    path: String,
+    state: State<Arc<ConfigManager>>,
+) -> Result<String, String> {
+    let cfg = state.get_config()?;
+    let project_path = std::path::Path::new(&path);
+    if !project_path.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+    detect_project(project_path, &cfg.settings)
+        .map(|c| c.command)
+        .ok_or_else(|| format!("Could not detect project type at {path}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +291,7 @@ pub fn run() {
             scan_projects,
             add_scanned_apps,
             check_path_exists,
+            detect_project_command,
             start_app,
             stop_app,
             get_running_apps,

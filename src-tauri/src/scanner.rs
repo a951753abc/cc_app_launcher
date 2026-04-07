@@ -1,7 +1,11 @@
-use crate::config::{AppEntry, ConfigManager};
+use crate::config::{AppEntry, ConfigManager, Settings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,7 +136,7 @@ pub fn extract_port(script: &str) -> Option<u16> {
 }
 
 /// Inspect a directory and, if it looks like a project, return a `ScanCandidate`.
-pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
+pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -185,7 +189,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
         || path.join("setup.py").exists()
     {
         let entry = find_python_entry(path);
-        let command = build_python_command(path, &entry);
+        let command = build_python_command(path, &entry, settings);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
@@ -198,7 +202,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     // Python — fallback: directory contains .py files but no manifest
     if has_python_files(path) {
         let entry = find_python_entry(path);
-        let command = build_python_command(path, &entry);
+        let command = build_python_command(path, &entry, settings);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
@@ -258,6 +262,84 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     None
 }
 
+/// Parse the stdout of `where python` into a list of candidate paths.
+/// One path per non-blank line, trimmed.
+fn parse_where_output(s: &str) -> Vec<PathBuf> {
+    s.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Detect Microsoft Store's Python alias stub. The stub lives at
+/// `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` and only opens
+/// the Store install dialog — never use it as a real interpreter.
+fn is_windows_store_stub(p: &Path) -> bool {
+    let s = p.to_string_lossy().to_lowercase().replace('/', "\\");
+    s.contains("\\appdata\\local\\microsoft\\windowsapps\\")
+}
+
+/// Pick the first candidate that is not a Windows Store stub and exists
+/// on disk. Used by tests via the `_with` variant for predicate injection.
+fn pick_real_python(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    pick_real_python_with(candidates, |p| p.exists())
+}
+
+/// Testable variant of [`pick_real_python`]; accepts an `exists` predicate
+/// instead of calling `Path::exists`, enabling pure unit tests without I/O.
+fn pick_real_python_with<F>(candidates: Vec<PathBuf>, exists: F) -> Option<PathBuf>
+where
+    F: Fn(&Path) -> bool,
+{
+    candidates
+        .into_iter()
+        .find(|p| !is_windows_store_stub(p) && exists(p))
+}
+
+/// Run `where python` on Windows and return the first usable interpreter.
+/// Returns `None` if `where` fails or only finds Windows Store stubs.
+fn resolve_system_python() -> Option<PathBuf> {
+    let output = Command::new("where")
+        .arg("python")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    pick_real_python(parse_where_output(&stdout))
+}
+
+/// Resolve which Python executable to use for a given project directory.
+///
+/// Priority:
+/// 1. Project-local venv (`venv\Scripts\python.exe` or `.venv\...`)
+/// 2. User-configured `settings.python_interpreter` (if file exists)
+/// 3. System `where python` (skipping Windows Store stub)
+/// 4. `None` — caller falls back to bare `python`
+fn resolve_python_for_project(
+    path: &Path,
+    settings: &Settings,
+) -> Option<PathBuf> {
+    if let Some(venv) = find_venv_python(path) {
+        return Some(venv);
+    }
+    if let Some(custom) = settings
+        .python_interpreter
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let p = PathBuf::from(custom);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    resolve_system_python()
+}
+
 /// Find the venv Python executable in a project directory (Windows).
 /// Checks `venv\Scripts\python.exe` and `.venv\Scripts\python.exe`.
 fn find_venv_python(path: &Path) -> Option<PathBuf> {
@@ -270,12 +352,12 @@ fn find_venv_python(path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Build the Python command for a project, using venv if available.
-fn build_python_command(path: &Path, entry: &str) -> String {
-    if let Some(venv_python) = find_venv_python(path) {
-        format!("\"{}\" {}", venv_python.to_string_lossy(), entry)
-    } else {
-        format!("python {}", entry)
+/// Build the Python command for a project, using the resolved interpreter
+/// (venv > settings.python_interpreter > system `where python` > bare `python`).
+fn build_python_command(path: &Path, entry: &str, settings: &Settings) -> String {
+    match resolve_python_for_project(path, settings) {
+        Some(python) => format!("\"{}\" {}", python.to_string_lossy(), entry),
+        None => format!("python {}", entry),
     }
 }
 
@@ -400,7 +482,7 @@ pub fn scan_projects(config: &ConfigManager) -> Vec<ScanCandidate> {
                 continue;
             }
 
-            if let Some(candidate) = detect_project(&project_path) {
+            if let Some(candidate) = detect_project(&project_path, &cfg.settings) {
                 results.push(candidate);
             }
         }
@@ -456,5 +538,130 @@ mod tests {
         // No port
         assert_eq!(extract_port("cargo run"), None);
         assert_eq!(extract_port("python app.py"), None);
+    }
+
+    #[test]
+    fn test_parse_where_output_basic() {
+        let raw = "C:\\Users\\JP6\\anaconda3\\python.exe\r\nC:\\Python314\\python.exe\r\n";
+        let parsed = parse_where_output(raw);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"));
+        assert_eq!(parsed[1], PathBuf::from("C:\\Python314\\python.exe"));
+    }
+
+    #[test]
+    fn test_parse_where_output_skips_blank_lines() {
+        let raw = "\nC:\\Python314\\python.exe\n\n  \n";
+        let parsed = parse_where_output(raw);
+        assert_eq!(parsed.len(), 1);
+    }
+
+    #[test]
+    fn test_is_windows_store_stub_detects_appdata_windowsapps() {
+        assert!(is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe"
+        )));
+        assert!(is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        )));
+    }
+
+    #[test]
+    fn test_is_windows_store_stub_real_python_is_not_stub() {
+        assert!(!is_windows_store_stub(&PathBuf::from(
+            "C:\\Python314\\python.exe"
+        )));
+        assert!(!is_windows_store_stub(&PathBuf::from(
+            "C:\\Users\\JP6\\anaconda3\\python.exe"
+        )));
+    }
+
+    #[test]
+    fn test_pick_real_python_skips_stub_and_picks_first_real() {
+        let candidates = vec![
+            PathBuf::from("C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe"),
+            PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"),
+            PathBuf::from("C:\\Python314\\python.exe"),
+        ];
+        let picked = pick_real_python_with(candidates, |_| true);
+        assert_eq!(
+            picked,
+            Some(PathBuf::from("C:\\Users\\JP6\\anaconda3\\python.exe"))
+        );
+    }
+
+    #[test]
+    fn test_pick_real_python_returns_none_when_only_stub() {
+        let candidates = vec![PathBuf::from(
+            "C:\\Users\\JP6\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",
+        )];
+        let picked = pick_real_python_with(candidates, |_| true);
+        assert_eq!(picked, None);
+    }
+
+    #[test]
+    fn test_pick_real_python_returns_none_when_none_exist() {
+        let candidates = vec![PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe")];
+        let picked = pick_real_python_with(candidates, |_| false);
+        assert_eq!(picked, None);
+    }
+
+    #[test]
+    fn test_pick_real_python_uses_real_existence_check() {
+        // Use current_exe() — guaranteed to exist on the test machine
+        let real_exe = std::env::current_exe().unwrap();
+        let candidates = vec![
+            PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe"),
+            real_exe.clone(),
+        ];
+        assert_eq!(pick_real_python(candidates), Some(real_exe));
+    }
+
+    fn settings_with_python(p: Option<&str>) -> Settings {
+        let mut s = Settings::default();
+        s.python_interpreter = p.map(|x| x.to_string());
+        s
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_uses_custom_setting_when_exists() {
+        // Use a path that definitely exists on the test machine
+        let exists_path = std::env::current_exe().unwrap();
+        let exists_str = exists_path.to_string_lossy().to_string();
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some(&exists_str)),
+        );
+        assert_eq!(resolved, Some(exists_path));
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_skips_custom_when_not_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some("C:\\Definitely\\Not\\Real\\python.exe")),
+        );
+        // Falls through to resolve_system_python — result depends on test machine
+        // but it must NOT be the bogus path.
+        assert_ne!(
+            resolved,
+            Some(PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_prefers_venv_over_setting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let venv_python = tmp.path().join("venv").join("Scripts").join("python.exe");
+        std::fs::create_dir_all(venv_python.parent().unwrap()).unwrap();
+        std::fs::write(&venv_python, b"fake").unwrap();
+        let exists_path = std::env::current_exe().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some(&exists_path.to_string_lossy())),
+        );
+        assert_eq!(resolved, Some(venv_python));
     }
 }

@@ -35,6 +35,28 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
   );
 }
 
+interface TextRowProps {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}
+
+function TextRow({ label, value, placeholder, onChange }: TextRowProps) {
+  return (
+    <label className="flex flex-col gap-1 py-2">
+      <span className="text-sm text-text-primary">{label}</span>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 rounded bg-surface-0 px-2 text-xs font-mono text-text-primary placeholder:text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 transition-colors duration-150"
+      />
+    </label>
+  );
+}
+
 export function SettingsPanel({
   settings,
   onUpdate,
@@ -108,6 +130,27 @@ export function SettingsPanel({
               checked={settings.excludeWorktrees}
               onChange={handleToggle("excludeWorktrees")}
             />
+          </div>
+
+          <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mt-6 mb-2">
+            Python
+          </h3>
+          <div className="flex flex-col">
+            <TextRow
+              label="預設 Python 直譯器"
+              value={settings.pythonInterpreter ?? ""}
+              placeholder="C:\Users\xxx\anaconda3\python.exe"
+              onChange={(v) => {
+                const trimmed = v.trim();
+                onUpdate({
+                  ...settings,
+                  pythonInterpreter: trimmed === "" ? undefined : trimmed,
+                });
+              }}
+            />
+            <span className="text-[10px] text-text-secondary mt-1">
+              留空則自動以 <code className="font-mono">where python</code> 解析。新偵測或重新偵測 Python 專案時生效。
+            </span>
           </div>
         </div>
       </div>
