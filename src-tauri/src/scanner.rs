@@ -136,7 +136,7 @@ pub fn extract_port(script: &str) -> Option<u16> {
 }
 
 /// Inspect a directory and, if it looks like a project, return a `ScanCandidate`.
-pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
+pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -189,7 +189,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
         || path.join("setup.py").exists()
     {
         let entry = find_python_entry(path);
-        let command = build_python_command(path, &entry);
+        let command = build_python_command(path, &entry, settings);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
@@ -202,7 +202,7 @@ pub fn detect_project(path: &Path) -> Option<ScanCandidate> {
     // Python — fallback: directory contains .py files but no manifest
     if has_python_files(path) {
         let entry = find_python_entry(path);
-        let command = build_python_command(path, &entry);
+        let command = build_python_command(path, &entry, settings);
         return Some(ScanCandidate {
             name,
             path: path.to_string_lossy().to_string(),
@@ -352,12 +352,12 @@ fn find_venv_python(path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Build the Python command for a project, using venv if available.
-fn build_python_command(path: &Path, entry: &str) -> String {
-    if let Some(venv_python) = find_venv_python(path) {
-        format!("\"{}\" {}", venv_python.to_string_lossy(), entry)
-    } else {
-        format!("python {}", entry)
+/// Build the Python command for a project, using the resolved interpreter
+/// (venv > settings.python_interpreter > system `where python` > bare `python`).
+fn build_python_command(path: &Path, entry: &str, settings: &Settings) -> String {
+    match resolve_python_for_project(path, settings) {
+        Some(python) => format!("\"{}\" {}", python.to_string_lossy(), entry),
+        None => format!("python {}", entry),
     }
 }
 
@@ -482,7 +482,7 @@ pub fn scan_projects(config: &ConfigManager) -> Vec<ScanCandidate> {
                 continue;
             }
 
-            if let Some(candidate) = detect_project(&project_path) {
+            if let Some(candidate) = detect_project(&project_path, &cfg.settings) {
                 results.push(candidate);
             }
         }
