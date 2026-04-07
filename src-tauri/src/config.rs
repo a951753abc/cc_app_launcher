@@ -332,4 +332,24 @@ mod tests {
         let config = manager.get_config().unwrap();
         assert_eq!(config.apps[0].name, "ReloadedApp");
     }
+
+    #[test]
+    fn test_settings_python_interpreter_serde_round_trip() {
+        // 1. Old JSON without the field deserializes with None (backward compat)
+        let json_without_field = r#"{"startMinimized":false,"closeToTray":true,"autoStartWithWindows":false,"excludeWorktrees":true}"#;
+        let s: Settings = serde_json::from_str(json_without_field).unwrap();
+        assert_eq!(s.python_interpreter, None);
+
+        // 2. New JSON with camelCase pythonInterpreter deserializes correctly
+        let json_with_field = r#"{"startMinimized":false,"closeToTray":true,"autoStartWithWindows":false,"excludeWorktrees":true,"pythonInterpreter":"C:\\Users\\test\\python.exe"}"#;
+        let s2: Settings = serde_json::from_str(json_with_field).unwrap();
+        assert_eq!(
+            s2.python_interpreter.as_deref(),
+            Some("C:\\Users\\test\\python.exe")
+        );
+
+        // 3. skip_serializing_if ensures None values do not appear in output JSON
+        let serialized = serde_json::to_string(&Settings::default()).unwrap();
+        assert!(!serialized.contains("pythonInterpreter"));
+    }
 }
