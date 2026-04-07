@@ -1,7 +1,11 @@
-use crate::config::{AppEntry, ConfigManager};
+use crate::config::{AppEntry, ConfigManager, Settings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -293,6 +297,49 @@ where
         .find(|p| !is_windows_store_stub(p) && exists(p))
 }
 
+/// Run `where python` on Windows and return the first usable interpreter.
+/// Returns `None` if `where` fails or only finds Windows Store stubs.
+fn resolve_system_python() -> Option<PathBuf> {
+    let output = Command::new("where")
+        .arg("python")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    pick_real_python(parse_where_output(&stdout))
+}
+
+/// Resolve which Python executable to use for a given project directory.
+///
+/// Priority:
+/// 1. Project-local venv (`venv\Scripts\python.exe` or `.venv\...`)
+/// 2. User-configured `settings.python_interpreter` (if file exists)
+/// 3. System `where python` (skipping Windows Store stub)
+/// 4. `None` — caller falls back to bare `python`
+fn resolve_python_for_project(
+    path: &Path,
+    settings: &Settings,
+) -> Option<PathBuf> {
+    if let Some(venv) = find_venv_python(path) {
+        return Some(venv);
+    }
+    if let Some(custom) = settings
+        .python_interpreter
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let p = PathBuf::from(custom);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    resolve_system_python()
+}
+
 /// Find the venv Python executable in a project directory (Windows).
 /// Checks `venv\Scripts\python.exe` and `.venv\Scripts\python.exe`.
 fn find_venv_python(path: &Path) -> Option<PathBuf> {
@@ -568,5 +615,53 @@ mod tests {
             real_exe.clone(),
         ];
         assert_eq!(pick_real_python(candidates), Some(real_exe));
+    }
+
+    fn settings_with_python(p: Option<&str>) -> Settings {
+        let mut s = Settings::default();
+        s.python_interpreter = p.map(|x| x.to_string());
+        s
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_uses_custom_setting_when_exists() {
+        // Use a path that definitely exists on the test machine
+        let exists_path = std::env::current_exe().unwrap();
+        let exists_str = exists_path.to_string_lossy().to_string();
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some(&exists_str)),
+        );
+        assert_eq!(resolved, Some(exists_path));
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_skips_custom_when_not_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some("C:\\Definitely\\Not\\Real\\python.exe")),
+        );
+        // Falls through to resolve_system_python — result depends on test machine
+        // but it must NOT be the bogus path.
+        assert_ne!(
+            resolved,
+            Some(PathBuf::from("C:\\Definitely\\Not\\Real\\python.exe"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_python_for_project_prefers_venv_over_setting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let venv_python = tmp.path().join("venv").join("Scripts").join("python.exe");
+        std::fs::create_dir_all(venv_python.parent().unwrap()).unwrap();
+        std::fs::write(&venv_python, b"fake").unwrap();
+        let exists_path = std::env::current_exe().unwrap();
+        let resolved = resolve_python_for_project(
+            tmp.path(),
+            &settings_with_python(Some(&exists_path.to_string_lossy())),
+        );
+        assert_eq!(resolved, Some(venv_python));
     }
 }
