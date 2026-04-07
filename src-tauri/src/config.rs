@@ -47,6 +47,10 @@ pub struct Settings {
     pub auto_start_with_windows: bool,
     #[serde(default = "default_true")]
     pub exclude_worktrees: bool,
+    /// Optional global override for Python interpreter path. When set,
+    /// scanner uses this for Python projects without their own venv.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_interpreter: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -60,6 +64,7 @@ impl Default for Settings {
             close_to_tray: true,
             auto_start_with_windows: false,
             exclude_worktrees: true,
+            python_interpreter: None,
         }
     }
 }
