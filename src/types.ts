@@ -9,6 +9,7 @@ export interface AppEntry {
   type: AppType;
   port?: number;
   processName?: string;
+  condaEnv?: string;
   autoStart: boolean;
   tags: string[];
 }
@@ -34,6 +35,7 @@ export interface ScanCandidate {
   command: string;
   appType: string;
   port?: number;
+  condaEnv?: string;
 }
 
 export type ProcessStatus = "stopped" | "running" | "error" | "external";

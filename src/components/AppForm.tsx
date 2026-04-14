@@ -30,6 +30,7 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
   const [port, setPort] = useState<string>(
     app?.port != null ? String(app.port) : "",
   );
+  const [condaEnv, setCondaEnv] = useState(app?.condaEnv ?? "");
   const [processName, setProcessName] = useState(app?.processName ?? "");
   const [autoStart, setAutoStart] = useState(app?.autoStart ?? false);
 
@@ -63,6 +64,7 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
       type,
       port: type === "web" && port ? Number(port) : undefined,
       processName: processName.trim() || undefined,
+      condaEnv: condaEnv.trim() || undefined,
       autoStart,
       tags: app?.tags ?? [],
     };
@@ -195,6 +197,22 @@ export function AppForm({ app, onSave, onDelete, onClose }: AppFormProps) {
               />
             </div>
           )}
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-text-secondary">
+              Conda 環境（選填）
+            </label>
+            <input
+              type="text"
+              value={condaEnv}
+              onChange={(e) => setCondaEnv(e.target.value)}
+              placeholder="quant"
+              className="h-8 rounded bg-surface-0 px-2 text-sm font-mono text-text-primary placeholder:text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1 transition-colors duration-150"
+            />
+            <span className="text-[10px] text-text-secondary">
+              設定後啟動指令會自動加上 conda run -n &lt;env&gt;
+            </span>
+          </div>
 
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-text-secondary">

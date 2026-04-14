@@ -101,7 +101,14 @@ fn start_app(
         return Err(format!("Working directory does not exist: {}", entry.path));
     }
 
-    proc_mgr.start(entry.id, entry.command, entry.path, app_handle)
+    let effective_command = match &entry.conda_env {
+        Some(env) if !env.is_empty() => {
+            format!("conda run -n {} --no-banner {}", env, entry.command)
+        }
+        _ => entry.command.clone(),
+    };
+
+    proc_mgr.start(entry.id, effective_command, entry.path, app_handle)
 }
 
 #[tauri::command]

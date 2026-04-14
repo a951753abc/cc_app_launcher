@@ -15,6 +15,7 @@ pub struct ScanCandidate {
     pub command: String,
     pub app_type: String,
     pub port: Option<u16>,
+    pub conda_env: Option<String>,
 }
 
 /// Decode a `.claude/projects/` directory name into a filesystem path.
@@ -180,8 +181,12 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command: "npm run dev".to_string(),
             app_type: if port.is_some() { "web" } else { "script" }.to_string(),
             port,
+            conda_env: None,
         });
     }
+
+    // Detect conda environment (environment.yml "name:" field)
+    let conda_env = detect_conda_env(path);
 
     // Python — explicit markers
     if path.join("requirements.txt").exists()
@@ -196,6 +201,7 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command,
             app_type: "script".to_string(),
             port: None,
+            conda_env,
         });
     }
 
@@ -209,6 +215,7 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command,
             app_type: "script".to_string(),
             port: None,
+            conda_env,
         });
     }
 
@@ -220,6 +227,7 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command: "cargo run".to_string(),
             app_type: "cli".to_string(),
             port: None,
+            conda_env: None,
         });
     }
 
@@ -231,6 +239,7 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command: "go run .".to_string(),
             app_type: "cli".to_string(),
             port: None,
+            conda_env: None,
         });
     }
 
@@ -256,9 +265,30 @@ pub fn detect_project(path: &Path, settings: &Settings) -> Option<ScanCandidate>
             command: "dotnet run".to_string(),
             app_type: "cli".to_string(),
             port: None,
+            conda_env: None,
         });
     }
 
+    None
+}
+
+/// Detect a conda environment name from `environment.yml` or `environment.yaml`.
+/// Parses the `name:` field from the YAML (simple line-based, no YAML crate needed).
+fn detect_conda_env(path: &Path) -> Option<String> {
+    for filename in &["environment.yml", "environment.yaml"] {
+        let yml_path = path.join(filename);
+        if let Ok(content) = std::fs::read_to_string(&yml_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("name:") {
+                    let name = rest.trim().trim_matches('"').trim_matches('\'');
+                    if !name.is_empty() {
+                        return Some(name.to_string());
+                    }
+                }
+            }
+        }
+    }
     None
 }
 
@@ -495,6 +525,7 @@ pub fn scan_projects(config: &ConfigManager) -> Vec<ScanCandidate> {
 pub fn candidate_to_app(candidate: ScanCandidate) -> AppEntry {
     let mut app = AppEntry::new(candidate.name, candidate.path, candidate.command, candidate.app_type);
     app.port = candidate.port;
+    app.conda_env = candidate.conda_env;
     app
 }
 

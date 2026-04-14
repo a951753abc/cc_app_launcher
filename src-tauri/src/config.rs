@@ -18,6 +18,10 @@ pub struct AppEntry {
     /// Process name to match for external-running detection (e.g. "pythonw.exe").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
+    /// Conda environment name (e.g. "quant"). When set, the command is wrapped
+    /// with `conda run -n <env> --no-banner`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_env: Option<String>,
     pub auto_start: bool,
     pub tags: Vec<String>,
 }
@@ -32,6 +36,7 @@ impl AppEntry {
             app_type,
             port: None,
             process_name: None,
+            conda_env: None,
             auto_start: false,
             tags: Vec::new(),
         }
