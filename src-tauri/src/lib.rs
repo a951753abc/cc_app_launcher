@@ -82,6 +82,53 @@ fn detect_project_command(
 // Process commands
 // ---------------------------------------------------------------------------
 
+/// Locate the `conda` launcher.  `conda` is frequently NOT on the system PATH
+/// on Windows (it gets activated only when you open an "Anaconda Prompt"), so
+/// invoking `cmd /C "conda run ..."` fails silently.  Probe a handful of
+/// well-known install locations and prefer the absolute path to `conda.bat`.
+fn find_conda_executable() -> String {
+    // 1. Honour CONDA_EXE if it is set and points at an existing file.
+    //    CONDA_EXE usually points at `Scripts/conda.exe` — prefer the sibling
+    //    `condabin/conda.bat` wrapper for cmd.exe compatibility.
+    if let Ok(conda_exe) = std::env::var("CONDA_EXE") {
+        let p = std::path::PathBuf::from(&conda_exe);
+        if p.exists() {
+            if let Some(root) = p.parent().and_then(|s| s.parent()) {
+                let bat = root.join("condabin").join("conda.bat");
+                if bat.exists() {
+                    return format!("\"{}\"", bat.display());
+                }
+            }
+            return format!("\"{}\"", conda_exe);
+        }
+    }
+
+    // 2. Probe common installation roots on Windows.
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        for flavour in ["anaconda3", "miniconda3", "miniforge3"] {
+            candidates.push(home.join(flavour).join("condabin").join("conda.bat"));
+        }
+    }
+    for root in [
+        r"C:\ProgramData\anaconda3",
+        r"C:\ProgramData\miniconda3",
+        r"C:\ProgramData\miniforge3",
+    ] {
+        candidates.push(std::path::PathBuf::from(root).join("condabin").join("conda.bat"));
+    }
+
+    for cand in candidates {
+        if cand.exists() {
+            return format!("\"{}\"", cand.display());
+        }
+    }
+
+    // 3. Fallback: assume `conda` is on PATH.  Will still fail if it is not,
+    //    but at least the error message surfaces in the process log.
+    "conda".to_string()
+}
+
 #[tauri::command]
 fn start_app(
     app_handle: AppHandle,
@@ -103,7 +150,11 @@ fn start_app(
 
     let effective_command = match &entry.conda_env {
         Some(env) if !env.is_empty() => {
-            format!("conda run -n {} --no-banner {}", env, entry.command)
+            let conda = find_conda_executable();
+            format!(
+                "{} run -n {} --no-capture-output {}",
+                conda, env, entry.command
+            )
         }
         _ => entry.command.clone(),
     };

@@ -114,8 +114,16 @@ impl ProcessManager {
             }
         }
 
+        // Use raw_arg to bypass Rust's default Windows escape rules, which
+        // emit `\"` — a sequence cmd.exe does not recognise.  Wrap the whole
+        // command in an outer pair of quotes so cmd's `/C` parser hits rule 2
+        // ("first char is a quote → strip leading and trailing quote") and
+        // recovers the original command verbatim.  Without this, commands
+        // containing multiple quoted paths (e.g. `"conda.bat" ... "python.exe" ...`)
+        // are misparsed and fail silently before any output can be captured.
         let mut child = Command::new("cmd")
-            .args(["/C", &command])
+            .raw_arg("/C")
+            .raw_arg(format!("\"{command}\""))
             .current_dir(&working_dir)
             .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::piped())
